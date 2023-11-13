@@ -1,113 +1,265 @@
-import Image from 'next/image'
+"use client";
 
-export default function Home() {
+import { useRef, useState, useEffect } from 'react';
+import { TabsTrigger, TabsList, TabsContent, Tabs } from "@/components/ui/tabs"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+
+import FormData from 'form-data';
+
+export default function Component() {
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null); // Holds the SpeechRecognition instance
+  const searchInputRef = useRef<HTMLInputElement>(null); // Holds the reference to the search input
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [labels, setLabels] = useState('');
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Set the selected file
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleLabelsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Set the labels
+    setLabels(e.target.value);
+  };
+
+  const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // Prevent the default form submission
+
+    if (selectedFile) {
+      const fileName = encodeURIComponent(selectedFile.name);
+
+      console.log(fileName);
+      console.log(selectedFile);
+  
+      try {
+        const response = await fetch(`https://u09wgwz7fh.execute-api.us-east-1.amazonaws.com/upload_test/upload/${fileName}`, {
+          method: 'PUT',
+          body: selectedFile, // Directly send the file as the body of the request
+          headers: {
+            'Content-Type': selectedFile.type // Set the content type to the file's type
+            // Do not set 'Access-Control-Allow-Origin' here, it's a response header set by the server
+          },
+        });
+
+        const responseData = await response.json();
+        console.log(responseData);
+        // Handle success
+      } catch (error) {
+        // Handle errors
+        console.error('There was an error uploading the file:', error);
+      }
+    }
+  };
+
+  useEffect(() => {
+    // Initialize SpeechRecognition
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition && !recognitionRef.current) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true; // Keep listening even if the user pauses
+      recognitionRef.current.interimResults = true; // Set to true to get interim results
+
+      recognitionRef.current.onresult = (event: any) => {
+        let interimTranscript = '';
+      
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            interimTranscript += transcript; // Append final result to interimTranscript
+          } else {
+            interimTranscript += transcript; // Concatenate interim results
+          }
+        }
+        
+        // Set the value of the search input to its current value plus the new interimTranscript
+        if (searchInputRef.current) {
+          searchInputRef.current.value = interimTranscript;
+        }
+      };
+
+      recognitionRef.current.onend = () => {
+        // When recognition ends, update the state
+        setIsRecording(false);
+      };
+    }
+  }, []);  
+
+  const toggleVoiceInput = () => {
+    if (isRecording) {
+      // Stop recognition if it is currently recording
+      recognitionRef.current && recognitionRef.current.stop();
+      setIsRecording(false);
+    } else {
+      // Start recognition if it is not currently recording
+      recognitionRef.current && recognitionRef.current.start();
+      setIsRecording(true);
+    }
+  };
+
+  const handleSearch = async () => {
+    const query = searchInputRef.current?.value; // Optional chaining in case the ref is undefined
+    
+    console.log(query);
+    if (query) {
+      const url = `https://your-placeholder-url.com/search?query=${encodeURIComponent(query)}`;
+  
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        // Handle the data from the response
+        console.log(data);
+      } catch (error) {
+        // Handle any errors
+        console.error("There was an error fetching the search results:", error);
+      }
+    }
+  };
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{' '}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
+    <div className="flex flex-col space-y-6">
+      <nav className="flex items-center justify-center p-4 bg-gray-800 text-white">
+        <h1 className="text-2xl font-bold">Photo Album</h1>
+      </nav>
+      <div className="pr-40 pl-40 pt-32">
+        <Tabs className="w-full" defaultValue="search">
+          <TabsList className="flex justify-center border-b">
+            <TabsTrigger className="px-4 py-2 text-center font-semibold text-zinc-900" value="search">
+              Search
+            </TabsTrigger>
+            <TabsTrigger className="px-4 py-2 text-center font-semibold text-zinc-900" value="upload">
+              Upload
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="search">
+            <div className="space-y-4">
+              <div className="relative">
+                <Input 
+                  className="pl-12 pr-14 rounded-md" 
+                  id="search" 
+                  ref={searchInputRef} 
+                  placeholder="Search for images..." 
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSearch();
+                    }
+                  }} />
+                <svg
+                  className=" absolute left-3.5 top-2.5 h-5 w-5 text-zinc-500"
+                  fill="none"
+                  height="24"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  width="24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <Button className="absolute right-0 top-0" size="icon" variant="ghost" onClick={toggleVoiceInput}>
+                  {isRecording ? (
+                    // Render this animated SVG when recording
+                    <svg className="animate-pulse h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="4" cy="4" r="3" />
+                    </svg>
+                  ) : (
+                    // Render this microphone SVG when not recording
+                    <svg
+                      className=" h-5 w-5"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </svg>
+                  )}
+                  <span className="sr-only">Voice Search</span>
+                </Button>
+              </div>
+              
+              <p className="text-sm text-gray-500">* Click the microphone button to record and again to stop when it's flashing.</p>             
+             
+              <div className="grid grid-cols-4 gap-4">
+                <img
+                  alt="Placeholder 1"
+                  className="rounded-md"
+                  height="200"
+                  src="/placeholder.svg"
+                  style={{
+                    aspectRatio: "200/200",
+                    objectFit: "cover",
+                  }}
+                  width="200"
+                />
+                <img
+                  alt="Placeholder 2"
+                  className="rounded-md"
+                  height="200"
+                  src="/placeholder.svg"
+                  style={{
+                    aspectRatio: "200/200",
+                    objectFit: "cover",
+                  }}
+                  width="200"
+                />
+                <img
+                  alt="Placeholder 3"
+                  className="rounded-md"
+                  height="200"
+                  src="/placeholder.svg"
+                  style={{
+                    aspectRatio: "200/200",
+                    objectFit: "cover",
+                  }}
+                  width="200"
+                />
+                <img
+                  alt="Placeholder 4"
+                  className="rounded-md"
+                  height="200"
+                  src="/placeholder.svg"
+                  style={{
+                    aspectRatio: "200/200",
+                    objectFit: "cover",
+                  }}
+                  width="200"
+                />
+              </div>
+            </div>
+          </TabsContent>
+          <TabsContent value="upload">
+            <form className="space-y-4" onSubmit={handleUpload}>
+              <div className="relative">
+                <Label htmlFor="file">Upload Photo:</Label>
+                <Input className="mt-1 rounded-md" id="file" type="file" onChange={handleFileChange} />
+              </div>
+              <div className="relative">
+                <Label htmlFor="labels">Labels:</Label>
+                <Input className="mt-1 rounded-md" id="labels" placeholder="Enter labels separated by commas..." onChange={handleLabelsChange} />
+              </div>
+              <Button type="submit" className="w-full">Upload</Button>
+            </form>
+          </TabsContent>
+        </Tabs>
       </div>
-
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 before:lg:h-[360px] z-[-1]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Docs{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Learn{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Templates{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Explore the Next.js 13 playground.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Deploy{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
+    </div>
   )
 }
+
