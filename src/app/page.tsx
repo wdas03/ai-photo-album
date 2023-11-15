@@ -1,21 +1,41 @@
 "use client";
 
 import { useRef, useState, useEffect } from 'react';
-import { TabsTrigger, TabsList, TabsContent, Tabs } from "@/components/ui/tabs"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
+import { TabsTrigger, TabsList, TabsContent, Tabs } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 
-import FormData from 'form-data';
+import { v4 as uuidv4 } from 'uuid';
+import ClipLoader from 'react-spinners/ClipLoader';
+
 
 export default function Component() {
   const [isRecording, setIsRecording] = useState(false);
-  const recognitionRef = useRef(null); // Holds the SpeechRecognition instance
+  interface SpeechRecognition {
+    continuous: boolean;
+    interimResults: boolean;
+    start: () => void;
+    stop: () => void;
+    onresult: (event: any) => void; // Define more specific type for event if needed
+    onend: (event: any) => void; 
+    // Add other properties and methods you need from SpeechRecognition
+  }
+  
+  const endpointURL = "https://meeh4tr2he.execute-api.us-east-1.amazonaws.com/prod2";
+  const s3BucketName = "ai-photos-bucket-whd";
+
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null); // Holds the reference to the search input
+  const [searchResults, setSearchResults] = useState([]); // Store search results
+  const [loading, setLoading] = useState(false);
+
+  const [uploadStatus, setUploadStatus] = useState('');
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [labels, setLabels] = useState('');
 
+  
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Set the selected file
     if (e.target.files && e.target.files.length > 0) {
@@ -31,64 +51,90 @@ export default function Component() {
   const handleUpload = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault(); // Prevent the default form submission
 
-    if (selectedFile) {
-      const fileName = encodeURIComponent(selectedFile.name);
+    setUploadStatus(''); // Reset upload status
 
-      console.log(fileName);
+    if (selectedFile) {
+      // Generate a unique filename with a UUID
+      const uniqueId = uuidv4(); // Use a function from a library like `uuid`
+      const fileExtension = selectedFile.name.split('.').pop();
+      const uniqueFileName = `${uniqueId}.${fileExtension}`;
+      
+      const customLabels = labels.toLowerCase().split(',').map(label => label.trim()).join(',');
+
+      console.log(uniqueFileName);
       console.log(selectedFile);
+      console.log(customLabels);
   
       try {
-        const response = await fetch(`https://u09wgwz7fh.execute-api.us-east-1.amazonaws.com/upload_test/upload/${fileName}`, {
+        const response = await fetch(`${endpointURL}/upload/ai-photos-bucket-whd/${encodeURIComponent(uniqueFileName)}`, {
           method: 'PUT',
+          mode: 'cors',
           body: selectedFile, // Directly send the file as the body of the request
           headers: {
-            'Content-Type': selectedFile.type // Set the content type to the file's type
-            // Do not set 'Access-Control-Allow-Origin' here, it's a response header set by the server
+            'Content-Type': selectedFile.type,
+            'x-amz-meta-customLabels': customLabels,
+            'Access-Control-Allow-Origin': '*'
           },
         });
 
-        const responseData = await response.json();
-        console.log(responseData);
-        // Handle success
+        console.log("Sent request to upload file endpoint.");
+
+        if (response.ok) {
+          // Handle success - No need to call response.json() for S3 PUT operation
+          console.log("File uploaded successfully.");
+          setUploadStatus('Successfully uploaded image!');
+        } else {
+          // Handle errors
+          console.error('File upload failed:', response.statusText);
+          setUploadStatus(`Failed to upload image: ${response.statusText}.`);
+        }
       } catch (error) {
         // Handle errors
         console.error('There was an error uploading the file:', error);
+        setUploadStatus(`Error uploading image: ${error}.`);
       }
     }
-  };
+};
+
 
   useEffect(() => {
     // Initialize SpeechRecognition
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition && !recognitionRef.current) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true; // Keep listening even if the user pauses
-      recognitionRef.current.interimResults = true; // Set to true to get interim results
-
-      recognitionRef.current.onresult = (event: any) => {
-        let interimTranscript = '';
-      
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            interimTranscript += transcript; // Append final result to interimTranscript
-          } else {
-            interimTranscript += transcript; // Concatenate interim results
-          }
-        }
+    if (SpeechRecognition) {
+      if (!recognitionRef.current) {
+        recognitionRef.current = new SpeechRecognition();
+      }
+  
+      // Now, it's safe to set properties on recognitionRef.current
+      if (recognitionRef.current) {
+        recognitionRef.current.continuous = true; // Keep listening even if the user pauses
+        recognitionRef.current.interimResults = true; // Set to true to get interim results
+  
+        recognitionRef.current.onresult = (event: any) => {
+          let interimTranscript = '';
         
-        // Set the value of the search input to its current value plus the new interimTranscript
-        if (searchInputRef.current) {
-          searchInputRef.current.value = interimTranscript;
-        }
-      };
-
-      recognitionRef.current.onend = () => {
-        // When recognition ends, update the state
-        setIsRecording(false);
-      };
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              interimTranscript += transcript; // Append final result to interimTranscript
+            } else {
+              interimTranscript += transcript; // Concatenate interim results
+            }
+          }
+          
+          // Set the value of the search input to its current value plus the new interimTranscript
+          if (searchInputRef.current) {
+            searchInputRef.current.value = interimTranscript;
+          }
+        };
+  
+        recognitionRef.current.onend = () => {
+          // When recognition ends, update the state
+          setIsRecording(false);
+        };
+      }
     }
-  }, []);  
+  }, []); 
 
   const toggleVoiceInput = () => {
     if (isRecording) {
@@ -102,21 +148,34 @@ export default function Component() {
     }
   };
 
+  const isPlural = (word: string) => {
+    if (word.toLowerCase().endsWith('es')) {
+      // Check common cases where words end with 'es'
+      if (word.length > 2 && ['ch', 'sh'].includes(word.slice(-4, -2).toLowerCase())) {
+        return word.slice(0, -2); // Remove 'es' for words that end with 'ch' or 'sh'
+      }
+    }
+    return word.toLowerCase().endsWith('s') ? word.slice(0, -1) : word; // Remove 's' if word ends with 's'
+  };
+
   const handleSearch = async () => {
-    const query = searchInputRef.current?.value; // Optional chaining in case the ref is undefined
-    
-    console.log(query);
+    const query = searchInputRef.current?.value;
     if (query) {
-      const url = `https://your-placeholder-url.com/search?query=${encodeURIComponent(query)}`;
-  
+      // Singularize search terms
+      const singularQuery = query.split(' ').map(isPlural).join(' ');
+      console.log(singularQuery);
+
+      setLoading(true); // Start loading
+      const url = `${endpointURL}/search?q=${encodeURIComponent(singularQuery)}`;
       try {
         const response = await fetch(url);
         const data = await response.json();
-        // Handle the data from the response
-        console.log(data);
+  
+        setSearchResults(data.imagePaths);
       } catch (error) {
-        // Handle any errors
         console.error("There was an error fetching the search results:", error);
+      } finally {
+        setLoading(false); // Stop loading regardless of the outcome
       }
     }
   };
@@ -194,14 +253,45 @@ export default function Component() {
                 </Button>
               </div>
               
-              <p className="text-sm text-gray-500">* Click the microphone button to record and again to stop when it's flashing.</p>             
-             
+              <p className="text-sm text-gray-500">* Click the microphone button to record and again to stop when it is flashing.</p> 
+              <div className="flex justify-center">
+                <Button onClick={handleSearch}>
+                  Search
+                </Button>
+              </div>
+
+              {loading && 
+                <div className="flex justify-center">
+                  <ClipLoader size={30} />
+                </div>
+              }
+
               <div className="grid grid-cols-4 gap-4">
+                {/* Iterate through searchResults and display images */}
+                {searchResults && searchResults.map((imagePath, index) => (
+                  <a href={imagePath} target="_blank" key={imagePath}>
+                    <img
+                      key={index}
+                      alt={`Search result ${index}`}
+                      className="rounded-md"
+                      src={imagePath}
+                      style={{
+                        aspectRatio: "400/400",
+                        objectFit: "cover",
+                      }}
+                      width="400"
+                      height="400"
+                    />
+                  </a>
+                ))}
+              </div>
+
+              {/* <div className="grid grid-cols-4 gap-4">
                 <img
                   alt="Placeholder 1"
                   className="rounded-md"
                   height="200"
-                  src="/placeholder.svg"
+                  src="https://b2-ccbd-asgn2.s3.amazonaws.com/tree_test.jpg"
                   style={{
                     aspectRatio: "200/200",
                     objectFit: "cover",
@@ -212,7 +302,7 @@ export default function Component() {
                   alt="Placeholder 2"
                   className="rounded-md"
                   height="200"
-                  src="/placeholder.svg"
+                  src="https://b2-ccbd-asgn2.s3.amazonaws.com/dog_test.png"
                   style={{
                     aspectRatio: "200/200",
                     objectFit: "cover",
@@ -241,8 +331,8 @@ export default function Component() {
                   }}
                   width="200"
                 />
-              </div>
-            </div>
+              </div> */}
+            </div> 
           </TabsContent>
           <TabsContent value="upload">
             <form className="space-y-4" onSubmit={handleUpload}>
@@ -255,6 +345,11 @@ export default function Component() {
                 <Input className="mt-1 rounded-md" id="labels" placeholder="Enter labels separated by commas..." onChange={handleLabelsChange} />
               </div>
               <Button type="submit" className="w-full">Upload</Button>
+              {uploadStatus && (
+                <p className={`mt-4 text-center ${uploadStatus.startsWith('Successfully') ? 'text-green-500' : 'text-red-500'}`}>
+                  {uploadStatus}
+                </p>
+              )}
             </form>
           </TabsContent>
         </Tabs>
